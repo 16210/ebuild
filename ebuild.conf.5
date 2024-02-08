@@ -1,0 +1,20 @@
+.TH ebuild.conf 5 2023-09-10 1.0.0 易构建软件包管理器
+.SH 名称
+ebuild.conf \- 易构建软件包管理器配置文件
+
+.SH 描述
+.PP
+/etc/ebuild/ebuild.conf 是易构建软件包管理器的配置文件。\c
+主要用于配置仓库的存放目录。
+.br
+文件的每一行格式为：\fB\fI变量\fP=\fI值\fP\fR，\c
+文件中从 \fB#\fP 字符到行尾的内容是注释，空白行忽略。
+.PP
+ebuild.conf 中各个变量以及它们的含义如下：
+.sp
+\(bu\h'+03'\c
+\fBrepo\-location\fR，仓库的存放目录。
+
+.SH 亦见
+.BR ebuild (1),
+.BR repo.conf (5)

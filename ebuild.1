@@ -1,0 +1,305 @@
+.TH ebuild 1 2023-09-10 1.0.0 易构建软件包管理器
+.SH 名称
+ebuild \- 易构建软件包管理器命令行工具
+
+.SH 语法
+\fBebuild\fP [\|\fI全局选项\fP\|] .\|.\|. [\|\fI操作\fP [\|\fI操作选项\fP\|] .\|.\|. [\|\fI操作对象\fP\|] .\|.\|.\|]
+
+.SH 描述
+\fBebuild\fP\ 是易构建软件包管理器的命令行工具，可以用来安装、卸载或重装软件包，\
+也可以从源码构建二进制包。
+.br
+\fBebuild\fP\ 提供了搜索和查询功能，前者主要用来查找仓库中的某个软件包，\
+后者主要针对某一个软件包查询如应用标志、插槽、依赖等各项信息。
+.br
+\fBebuild\fP\ 支持分组操作，不仅可以创建、删除或修改一个分组，还可以以组为单位安装或卸载软件包。
+.br
+\fBebuild\fP\ 具有仓库管理功能，可以添加或删除仓库、启用或禁用仓库，以及设定仓库的各项属性。
+
+.SH 操作
+\fBinstall\fP
+安装或重装软件包。
+.br
+\fBuninstall\fP
+卸载软件包。
+.br
+\fBsearch\fP
+搜索软件包。
+.br
+\fBquery\fP
+查询软件包。
+.br
+\fBgroup\fP
+分组管理。
+.br
+\fBrepo\fP
+仓库操作。
+.br
+\fBbuild\fP
+构建软件包。
+
+.SH 选项
+.SS 全局选项
+.TP
+\fB\-h\fP,\ \fB\-\-help\fP
+打印帮助信息并退出。
+.TP
+\fB\-v\fP,\ \fB\-\-version\fP
+打印版本信息并退出。
+.TP
+\fB\-V\fP\ \fI输出冗余程度\fP,\ \fB\-\-verbose\fP=\fI输出冗余程度\fP
+调整输出信息的冗余程度，可以是以下几种取值：
+.br
+\fB0\fP 仅必要和报错输出。
+.br
+\fB1\fP 增加警告输出（默认）。
+.br
+\fB2\fP 增加消息输出。
+.br
+\fB3\fP 增加调试输出。
+
+.SS 安装或重装操作选项
+.TP
+\fB\-U\fP \fI应用标志\fP\|[\|,.\|.\|.\|]\|,\ \fB\-\-use=\fP\fI应用标志\fP\|[\|,.\|.\|.\|]
+设定软件包的应用标志，应用标志前加连字符表示禁用此标志。
+.TP
+\fB\-N\fP,\ \fB\-\-no\-pdepend\fP
+默认情况下 \fBebuild\fP\ 会安装弱运行依赖。此选项用来禁止这一行为，如果有已经安装的弱运行依赖则不会卸载。
+.TP
+\fB\-C\fP \fI仓库名称\fP,\ \fB\-\-repo=\fP\fI仓库名称\fP
+从选定的仓库中安装软件包。\fI仓库名称\fP 必须是一个已启用仓库的名称。
+.br
+如果某个 \fI操作对象\fP 是“\fB@\fP”符加分组名称的话，当添加此选项时优先引用选定仓库中的分组定义，没有添加此选项时优先引用 \fBebuild\fP\ 自动维护的和自定义的分组定义。
+.TP
+\fB\-B\fP,\ \fB\-\-no\-define\-group\fP
+默认情况下如果引用仓库中的定义成功安装了一个分组，\fBebuild\fP\ 会覆盖性地创建一个相同的自定义分组。此选项用来禁止这一行为。
+.TP
+\fB\-R\fP \fI路径\fP,\ \fB\-\-root=\fP\fI路径\fP
+以给定的路径为根目录安装软件包。
+.TP
+\fB\-a\fP,\ \fB\-\-ask\fP
+在执行实际操作前，先显示将发生什么事件，然后询问是继续还是取消。
+.br
+此选项也可以用在卸载操作中。
+.TP
+\fB\-n\fP,\ \fB\-\-no\-build\-output\fP
+在安装非二进制包时，\fBebuild\fP\ 会打印出构建输出\
+（此行为不受\ \fI输出冗余程度\fP\ 影响），此选项用来禁止这一行为。
+
+.SS 卸载操作选项
+.TP
+\fB\-F\fP,\ \fB\-\-force\fP
+如果将要卸载的软件包是某个软件包的强运行依赖，则将它一起卸载。
+
+.SS 搜索操作选项
+.TP
+\fB\-a\fP,\ \fB\-\-all\-repo\fP
+默认情况下 \fBebuild\fP\ 只在已启用的仓库中搜索，此选项用来在所有仓库中搜索。此选项与 \fB\-\-repo\fP 选项互斥。
+.TP
+\fB\-r\fP\ \fI仓库名称\fP\|[\|,.\|.\|.\|]\|, \fB\-\-repo=\fP\fI仓库名称\fP\|[\|,.\|.\|.\|]
+只在选定的仓库中搜索。此选项与 \fB\-\-all\-repo\fP 选项互斥。
+.TP
+\fB\-c\fP\ \fI类别名称\fP\|[\|,.\|.\|.\|]\|, \fB\-\-category=\fP\fI类别名称\fP\|[\|,.\|.\|.\|]
+只在选定的类别中搜索。
+
+.SS 查询操作选项
+.TP
+\fB\-b\fP,\ \fB\-\-bdepend\fP
+查询软件包的构建依赖。如果查询的是仓库中的软件包，列出 ebuild 文件中 BDEPEND 的值，如果查询的是已安装的软件包，则列出实际安装的依赖。
+.TP
+\fB\-i\fP,\ \fB\-\-idepend\fP
+查询软件包的安装依赖。如果查询的是仓库中的软件包，列出 ebuild 文件中 IDEPEND 的值，如果查询的是已安装的软件包，则列出实际安装的依赖。
+.TP
+\fB\-r\fP,\ \fB\-\-rdepend\fP
+查询软件包的强运行依赖。如果查询的是仓库中的软件包，列出 ebuild 文件中 RDEPEND 的值，如果查询的是已安装的软件包，则列出实际安装的依赖。
+.TP
+\fB\-p\fP,\ \fB\-\-pdepend\fP
+查询软件包的弱运行依赖。如果查询的是仓库中的软件包，列出 ebuild 文件中 PDEPEND 的值，如果查询的是已安装的软件包，则列出实际安装的依赖。
+.TP
+\fB\-d\fP,\ \fB\-\-depend\fP
+查询软件包所有类型的依赖。相当于添加了 \fB\-\-bdepend\fP、\fB\-\-idepend\fP、\fB\-\-rdepend\fP 和 \fB\-\-pdepend\fP 四个选项。
+.TP
+\fB\-e\fP,\ \fB\-\-eapi\fP
+查询软件包所遵循的 EAPI。
+.TP
+\fB\-s\fP,\ \fB\-\-slot\fP
+查询软件包的插槽。
+.TP
+\fB\-x\fP,\ \fB\-\-src\-uri\fP
+查询软件包源码的下载链接。如果查询的是仓库中的软件包，列出 ebuild 文件中 SRC_URI 的值，如果查询的是已安装的软件包，则列出实际下载的链接。
+.TP
+\fB\-k\fP,\ \fB\-\-keywords\fP
+查询软件包面向的平台与稳定性。
+.TP
+\fB\-C\fP\ \fI仓库名称\fP,\ \fB\-\-repo=\fP\fI仓库名称\fP
+默认情况下 \fBebuild\fP\ 查询的是已安装的软件包，此选项用来查询某个仓库中的软件包。
+.br
+上面列出的查询选项既可以查询仓库中的软件包也可以查询已安装的软件包，下面列出的查询选项只能查询已安装的软件包。
+.TP
+\fB\-B\fP,\ \fB\-\-rev\-bdepend\fP
+查询软件包的反向构建依赖。
+.TP
+\fB\-I\fP,\ \fB\-\-rev\-idepend\fP
+查询软件包的反向安装依赖。
+.TP
+\fB\-R\fP,\ \fB\-\-rev\-rdepend\fP
+查询软件包的反向强运行依赖。
+.TP
+\fB\-P\fP,\ \fB\-\-rev\-pdepend\fP
+查询软件包的反向弱运行依赖。
+.TP
+\fB\-D\fP,\ \fB\-\-rev\-depend\fP
+查询软件包所有类型的反向依赖。相当于添加了 \fB\-\-rev\-bdepend\fP、\fB\-\-rev\-idepend\fP、\fB\-\-rev\-rdepend\fP 和 \fB\-\-rev\-pdepend\fP 四个选项。
+.TP
+\fB\-u\fP,\ \fB\-\-use\fP
+查询软件包的应用标志。
+.TP
+\fB\-l\fP,\ \fB\-\-file\-list\fP
+查询软件包包含的文件。
+.TP
+\fB\-f\fP,\ \fB\-\-package\fP
+查询文件属于哪个软件包。
+
+.SS 分组管理操作选项
+.TP
+\fB\-l\fP,\ \fB\-\-list\fP
+如果未给出 \fI操作对象\fP（“\fB@\fP”符加分组名称），列出遍历域中所有的分组，否则列出遍历域中选定的分组包含的软件包。
+.br
+遍历域默认是所有已启用的仓库当前使用的系统轮廓、\fBebuild\fP\ 自动维护分组以及自定义分组。
+.TP
+\fB\-r\fP\ \fI仓库名称\fP,\ \fB\-\-repo=\fP\fI仓库名称\fP
+将 \fB\-\-list\fP\ 选项的遍历域改为给定的仓库当前使用的系统轮廓，如果是未启用的仓库则必须添加 \fB\-\-profile\fP\ 选项。
+.TP
+\fB\-p\fP\ \fI系统轮廓\fP,\ \fB\-\-profile=\fP\fI系统轮廓\fP
+将 \fB\-\-list\fP\ 选项的遍历域改为给定的系统轮廓，仅在使用了 \fB\-\-repo\fP\ 选项时才有意义。
+.TP
+\fB\-e\fP,\ \fB\-\-ebuild\-defined\fP
+将 \fB\-\-list\fP\ 选项的遍历域改为 \fBebuild\fP\ 自动维护分组。
+.TP
+\fB\-u\fP,\ \fB\-\-user\-defined\fP
+将 \fB\-\-list\fP\ 选项的遍历域改为自定义分组。
+.TP
+\fB\-N\fP,\ \fB\-\-define\fP
+定义一个分组。需要一个或多个\ \fI操作对象\fP，第一个是“\fB@\fP”符加被定义的分组名称，后面的是已安装的软件包或“\fB@\fP”符加非仓库定义的分组，后者会立即展开为分组所包含的软件包。
+如果已存在和被定义分组同名的自定义分组则会将它覆盖。
+.TP
+\fB\-C\fP,\ \fB\-\-create\fP
+创建一个或多个空的自定义分组。如果已存在同名自定义分组则保持不变。
+.TP
+\fB\-D\fP,\ \fB\-\-delete\fP
+删除一个或多个自定义分组。
+.TP
+\fB\-A\fP,\ \fB\-\-add\fP
+向目标分组中添加软件包。需要至少两个\ \fI操作对象\fP，最后一个是“\fB@\fP”符加目标分组的名称，前面的是已安装的软件包或“\fB@\fP”符加非仓库定义的分组，后者会立即展开为分组所包含的软件包。
+.br
+可以以 \fBebuild\fP\ 自动维护的分组为目标。
+.TP
+\fB\-R\fP,\ \fB\-\-remove\fP
+从目标分组中移除软件包。需要至少两个\ \fI操作对象\fP，最后一个是“\fB@\fP”符加目标分组的名称，前面的是已安装的软件包或“\fB@\fP”符加非仓库定义的分组，后者会立即展开为分组所包含的软件包。
+.br
+可以以 \fBebuild\fP\ 自动维护的分组为目标。
+
+.SS 仓库操作选项
+.TP
+\fB\-l\fP,\ \fB\-\-list\fP
+如果未给出 \fI操作对象\fP（仓库名称），列出所有仓库的简要信息，否则列出选定仓库的详细信息。
+.TP
+\fB\-e\fP,\ \fB\-\-list\-enabled\fP
+忽略 \fI操作对象\fP，列出所有已启用的仓库的简要信息。
+.TP
+\fB\-d\fP,\ \fB\-\-list\-disabled\fP
+忽略 \fI操作对象\fP，列出所有未启用的仓库的简要信息。
+.TP
+\fB\-A\fP,\ \fB\-\-add\fP
+添加一个远程仓库或创建一个本地仓库。
+.TP
+\fB\-L\fP\ \fIURL\fP,\ \fB\-\-remote\fP=\fIURL\fP
+忽略 \fI操作对象\fP，以给定的 \fIURL\fP 添加一个远程仓库，支持的协议有：http、https、rsync。此选项仅在使用了 \fB\-\-add\fP\ 选项时才有意义并且与 \fB\-\-master\fP 选项互斥。
+.TP
+\fB\-M\fP\ \fI主仓库\fP,\ \fB\-\-master\fP=\fI主仓库\fP
+创建一个从属于 \fI主仓库\fP 的本地仓库。此选项仅在使用了 \fB\-\-add\fP\ 选项时才有意义并且与 \fB\-\-remote\fP 选项互斥。
+.br
+如果创建仓库时既没有添加 \fB\-\-remote\fP 选项也没有添加 \fB\-\-master\fP 选项，则会创建一个本地独立仓库。
+.TP
+\fB\-R\fP,\ \fB\-\-remove\fP
+删除一个或多个仓库。
+.TP
+\fB\-E\fP\ \fI优先级\fP,\ \fB\-\-set\-enable\fP=\fI优先级\fP
+设定仓库的优先级。可以在仓库创建的时候使用。\fI优先级\fP 是一个非负整数，数字越大优先级越高，\fB0\fP 表示禁用仓库。
+.TP
+\fB\-P\fP\ \fI系统轮廓\fP,\ \fB\-\-set\-profile\fP=\fI系统轮廓\fP
+设定使用仓库的哪一个系统轮廓。可以在仓库创建的时候使用。
+.TP
+\fB\-F\fP\ <\fBtrue\fP|\fBfalse\fP>,\ \fB\-\-set\-full\-sync\fP=<\fBtrue\fP|\fBfalse\fP>
+设定远程仓库是否完全同步。可以在远程仓库添加的时候使用。
+.TP
+\fB\-U\fP,\ \fB\-\-update\-conf\fP
+更新仓库 \fBrepo.conf\fP 中的文件清单，参考 \fBrepo.conf\fP(5)。
+
+.SS 构建操作选项
+.TP
+\fB\-u\fP \fI应用标志\fP\|[\|,.\|.\|.\|]\|,\ \fB\-\-use=\fP\fI应用标志\fP\|[\|,.\|.\|.\|]
+设定二进制包构建时的应用标志，应用标志前加连字符表示禁用此标志。
+.TP
+\fB\-s\fP,\ \fB\-\-src\-package\fP
+默认情况下 \fBebuild\fP\ 会构建二进制包，此选项用来制作源码包。
+.TP
+\fB\-r\fP \fI仓库名称\fP,\ \fB\-\-repo=\fP\fI仓库名称\fP
+从选定的仓库中构建软件包。\fI仓库名称\fP 必须是一个已启用仓库的名称。
+.TP
+\fB\-o\fP \fI输出文件名\fP\|[\|,.\|.\|.\|]\|,\ \fB\-\-output=\fP\fI输出文件名\fP\|[\|,.\|.\|.\|]
+默认情况下 \fBebuild\fP\ 会在当前目录输出构建好的软件包并以“\fB\fI名称\fP\-\fI版本\fP.\fI平台\fP.ebuild\fR”的格式命名，此选项用来修改输出目录和文件名。
+.br
+\fI输出文件名\fP\ 可以是一个连字符，表示输出到标准输出。
+.br
+要使用此选项，\fI输出文件名\fP\ 的个数必须和被构建软件包的数量相等。
+
+.SH 操作对象
+操作对象可以是以下几种形式之一：
+.sp
+\(bu\h'+03'\c
+限定的软件包名称。可以出现在安装或重装、卸载、构建操作中，
+.br
+\h'+04'\c
+也可以在使用了 \fB\-\-define\fP、\fB\-\-add\fP、\fB\-\-remove\fP 选项的情况下出现在分组管理操作中，
+.br
+\h'+04'\c
+以及在没有使用 \fB\-\-package\fP 选项的情况下出现在查询操作中。
+.sp
+\(bu\h'+03'\c
+“\fB@\fP”符加分组名称。可以出现在安装或重装、卸载、分组管理操作中。
+.sp
+\(bu\h'+03'\c
+模式字符串。可以出现在搜索操作中，用于匹配限定的软件包名称和软件包的描述。
+.sp
+\(bu\h'+03'\c
+文件名或目录名。可以在使用了 \fB\-\-package\fP 选项的情况下出现在查询操作中。
+.sp
+\(bu\h'+03'\c
+仓库名称。可以出现在仓库操作中。
+
+.SH 退出状态
+.TP
+.B 0
+程序成功执行。
+.TP
+.B 1
+用法、语法或配置文件出错。
+.TP
+.B 2
+操作出错。
+.TP
+.B 3
+子进程返回了非零的退出状态码。
+
+.SH 文件
+.TP
+.I /etc/ebuild/ebuild.conf
+易构建软件包管理器配置文件。
+.TP
+.I repo.conf
+每个 ebuild 仓库的配置文件。
+
+.SH 亦见
+.BR ebuild.conf (5),
+.BR repo.conf (5)
