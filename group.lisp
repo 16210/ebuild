@@ -102,70 +102,84 @@
     (let ((liu (open (path-join path "软件包分组")
 		     :direction :input :if-does-not-exist nil))
 	  (status :empty) n m)
-      (when liu
-	(do ((c (read-char liu nil :eof) (read-char liu nil :eof)))
-	  ((eql c :eof) (close liu))
-	  (case status
-	    (:empty
-	      (if (char= c #\#)
-		(read-line liu nil :eof)
-		(unless (find c #(#\Space #\Tab #\Newline) :test #'char=)
-		  (setf n (string c) status :name))))
-	    (:name
-	      (if (find c #(#\Space #\Tab) :test #'char=)
-		(if (group-name-p n)
-		  (setf status :splitter)
-		  (progn			; 分组名称不合法
-		    (close liu)
-		    (return-from read-group :error)))
-		(if (char= c #\Newline)
+      (labels ((dereference (gp)
+			    (if (char= (char gp 0) #\@)
+			      (if (group-name-p (subseq gp 1))
+				(cdr (assoc (subseq gp 1) group :test #'string=))
+				(progn			; 引用的分组名称不合法
+				  (close liu)
+				  (return-from read-group :error)))
+			      (if (qualified-package-name-p gp)
+				(list gp)
+				(progn			; 限定的软件包名称不合法
+				  (close liu)
+				  (return-from read-group :error)))))
+	       (merge-group ()					; 分组引用展开以及同名分组合并
+			    (if (string= m "-*")
+			      (setf group (delete-if #'(lambda (g)
+							 (string= (car g) n))
+						     group))
+			      (let ((g (assoc n group :test #'string=)))
+				(if (char= (char m 0) #\-)
+				  (when g
+				    (setf (cdr g) (nset-difference (cdr g)
+								   (dereference (subseq m 1))
+								   :test #'string=)))
+				  (progn
+				    (unless g
+				      (setf g (cons n nil) group (nconc group (list g))))
+				    (setf (cdr (last g)) (remove-if #'(lambda (pn)
+									(find pn (cdr g) :test #'string=))
+								    (dereference m)))))))))
+	(when liu
+	  (do ((c (read-char liu nil :eof) (read-char liu nil :eof)))
+	    ((eql c :eof) (close liu))
+	    (case status
+	      (:empty
+		(if (char= c #\#)
+		  (read-line liu nil :eof)
+		  (unless (find c #(#\Space #\Tab #\Newline) :test #'char=)
+		    (setf n (string c) status :name))))
+	      (:name
+		(if (find c #(#\Space #\Tab) :test #'char=)
+		  (if (group-name-p n)
+		    (setf status :splitter)
+		    (progn			; 分组名称不合法
+		      (close liu)
+		      (return-from read-group :error)))
+		  (if (char= c #\Newline)
+		    (progn
+		      (close liu)
+		      (return-from read-group :error))
+		    (setf n (concatenate 'string n (string c))))))
+	      (:splitter
+		(unless (find c #(#\Space #\Tab) :test #'char=)
+		  (if (char= c #\Newline)
+		    (progn
+		      (close liu)
+		      (return-from read-group :error))
+		    (setf m (string c) status :member))))
+	      (:member
+		(if (find c #(#\Space #\Tab #\Newline #\#) :test #'char=)
 		  (progn
-		    (close liu)
-		    (return-from read-group :error))
-		  (setf n (concatenate 'string n (string c))))))
-	    (:splitter
-	      (unless (find c #(#\Space #\Tab) :test #'char=)
-		(if (char= c #\Newline)
+		    (merge-group)
+		    (when (char= c #\#)
+		      (read-line liu nil :eof))
+		    (if (or (char= c #\Newline) (char= c #\#))
+		      (setf status :empty)
+		      (setf status :tail)))
+		  (setf m (concatenate 'string m (string c)))))
+	      (:tail
+		(if (or (char= c #\Newline) (char= c #\#))
 		  (progn
+		    (when (char= c #\#)
+		      (read-line liu nil :eof))
+		    (setf status :empty))
+		  (unless (or (char= c #\Space) (char= c #\Tab))
 		    (close liu)
-		    (return-from read-group :error))
-		  (setf m (string c) status :member))))
-	    (:member
-	      (if (find c #(#\Space #\Tab #\Newline) :test #'char=)
-		;; 分组引用展开以及同名分组合并
-		(if (string= m "-*")
-		  (setf group (delete-if #'(lambda (g)
-					     (string= (car g) n))
-					 group)
-			status :empty)
-		  (let ((g (assoc n group :test #'string=)))
-		    (labels ((pkgname-list (m)
-					   (if (char= (char m 0) #\@)
-					     (if (group-name-p (subseq m 1))
-					       (cdr (assoc (subseq m 1) group :test #'string=))
-					       (progn			; 引用的分组名称不合法
-						 (close liu)
-						 (return-from read-group :error)))
-					     (if (qualified-package-name-p m)
-					       (list m)
-					       (progn			; 限定的软件包名称不合法
-						 (close liu)
-						 (return-from read-group :error))))))
-		      (if (char= (char m 0) #\-)
-			(when g
-			  (setf (cdr g) (nset-difference (cdr g)
-							 (pkgname-list (subseq m 1))
-							 :test #'string=)))
-			(progn
-			  (unless g
-			    (setf g (cons n nil) group (nconc group (list g))))
-			  (setf (cdr (last g)) (remove-if #'(lambda (pn)
-							      (find pn (cdr g) :test #'string=))
-							  (pkgname-list m))))))
-		    (setf status :empty)))
-		(setf m (concatenate 'string m (string c)))))))
-	(unless (eql status :empty)			; 分组定义不完整
-	  (return-from read-group :error)))
+		    (return-from read-group :error))))))
+	  (unless (or (eql status :empty) (eql status :tail))		; 分组定义不完整
+	    (return-from read-group :error))))
       (delete-if #'(lambda (g)
 		     (null (cdr g)))
 		 group))))

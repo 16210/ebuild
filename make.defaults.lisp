@@ -47,11 +47,20 @@
 		  (return-from read-make.defaults :error))
 		(if (char= c #\")
 		  (setf make.defaults (nconc make.defaults (list (cons vari val)))
-			val "" status :empty)
+			val "" status :tail)
 		  (if (char= c #\Newline)
 		    (setf val (concatenate 'string val " "))
-		    (setf val (concatenate 'string val (string c)))))))))
-	(if (not (eql status :empty))
+		    (setf val (concatenate 'string val (string c)))))))
+	    (:tail
+	      (if (or (char= c #\Newline) (char= c #\#))
+		(progn
+		  (when (char= c #\#)
+		    (read-line liu nil :eof))
+		  (setf status :empty))
+		(unless (or (char= c #\Space) (char= c #\Tab))
+		  (close liu)
+		  (return-from read-make.defaults :error))))))
+	(unless (or (eql status :empty) (eql status :tail))
 	  (return-from read-make.defaults :error))))
     ;; 合并父系统轮廓的 <构建配置>
     (dolist (p plist)
