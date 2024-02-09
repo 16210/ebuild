@@ -88,3 +88,83 @@
 	(t
 	  (setf pkg-version nil)))
       pkg-version)))
+
+;; 版本解析*
+;; 参数：
+;;	ver	版本字符串
+;; 返回值：
+;;	解析成功返回一个 <软件包版本*>
+;;	ver 不合法返回 nil
+(defun parse-version* (ver)
+  (let ((len (length ver)) version star)
+    (and (plusp len)
+	 (if (char= (char ver (1- len)) #\*)
+	   (setf star t len (1- len) ver (subseq ver 0 len))
+	   t)
+	 (setf version (parse-version ver))
+	 (if star
+	   (if (find #\- ver :test #'char=)
+	     (cons version (+ 5 (length (version-number version))))
+	     (if (char-in-range (char (car (last (string-split ver #\_))) 0)
+				#\a #\z)
+	       (if (char-in-range (char ver (1- len)) #\0 #\9)
+		 (cons version (+ 4 (length (version-number version))))
+		 (cons version (+ 3 (length (version-number version)))))
+	       (if (char-in-range (char ver (1- len)) #\a #\z)
+		 (cons version (+ 2 (length (version-number version))))
+		 (cons version (+ 1 (length (version-number version)))))))
+	   (cons version 0)))))
+
+;; 版本比较
+;; 参数：
+;;	a			<软件包版本>
+;;	b			<软件包版本>
+;;	ignore-revision-p	是否忽略修订部分
+;;	cnt			<比较数量>
+;; 返回值：
+;;	一个整数，大于 0 代表 a > b，
+;;	小于 0 代表 a < b，等于 0 代表 a = b。
+(defun version-compare (a b &optional ignore-revision-p (cnt 0))
+  ;; 比较纪元部分
+  (when (/= (version-epoch a) (version-epoch b))
+    (return-from version-compare (- (version-epoch a)
+				    (version-epoch b))))
+  (decf cnt)
+  ;; 比较数字部分
+  (do ((na (version-number a) (cdr na))
+       (nb (version-number b) (cdr nb)))
+    ((or (null na) (null nb)))
+    (when (or (/= (car na) (car nb)) (zerop (decf cnt)))
+      (return-from version-compare (- (car na) (car nb)))))
+  (when (/= (length (version-number a)) (length (version-number b)))
+    (return-from version-compare (- (length (version-number a))
+				    (length (version-number b)))))
+  ;; 比较字母部分
+  (let ((la (if (version-letter a)
+	      (char-code (version-letter a))
+	      (1+ (char-code #\z))))
+	(lb (if (version-letter b)
+	      (char-code (version-letter b))
+	      (1+ (char-code #\z)))))
+    (when (or (/= la lb) (zerop (decf cnt)))
+      (return-from version-compare (- la lb))))
+  ;; 比较后缀部分
+  (let* ((order #("alpha" "beta" "pre" "rc" "p"))
+	 (suffix-a (version-suffix a))
+	 (suffix-b (version-suffix b))
+	 (sa (if suffix-a
+	       (cons (position (car suffix-a) order :test #'string=)
+		     (cdr suffix-a))
+	       (cons (length order) 0)))
+	 (sb (if suffix-b
+	       (cons (position (car suffix-b) order :test #'string=)
+		     (cdr suffix-b))
+	       (cons (length order) 0))))
+    (when (or (/= (car sa) (car sb)) (zerop (decf cnt)))
+      (return-from version-compare (- (car sa) (car sb))))
+    (when (or (/= (cdr sa) (cdr sb)) (zerop (decf cnt)))
+      (return-from version-compare (- (cdr sa) (cdr sb)))))
+  ;; 比较修订部分
+  (if ignore-revision-p
+    0
+    (- (version-revision a) (version-revision b))))
