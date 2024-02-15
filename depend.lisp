@@ -54,9 +54,7 @@
 	   ((or (= (1+ i) len) (not test)) test))
 	 ;; 检查开头和结尾
 	 (not (find (char name 0) "-+_"))
-	 (char/= (char name (- len 1)) #\_)
-	 ;; 检查下划线个数
-	 (eql (position #\_ name) (position #\_ name :from-end t)))))
+	 (char/= (char name (- len 1)) #\_))))
 
 ;; 解析软件包依赖说明符
 ;; 参数：
