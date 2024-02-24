@@ -2,9 +2,7 @@
 ;; 参数：
 ;;	path	文件所在的路径
 ;; 返回值：
-;;	执行成功返回一个 cons 列表，
-;;	每项的 car 是一个 <软件包依赖说明符>，
-;;	cdr 是 t 或 nil，分别代表屏蔽和解除屏蔽。
+;;	执行成功返回一个 <软件包屏蔽列表>，
 ;;	识别出语法错误返回 :error
 (defun read-package.mask (path)
   (setf path (path-join path "软件包屏蔽"))
