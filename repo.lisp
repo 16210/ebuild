@@ -143,6 +143,8 @@
   `(nth 4 ,repo))
 (defmacro repo-enable (repo)
   `(nth 5 ,repo))
+(defmacro repo-rootpath (repo)
+  `(nth 6 ,repo))
 
 ;; 读取仓库目录
 ;; 参数：
@@ -150,7 +152,7 @@
 ;; 返回值：
 ;;	一个 <仓库> 或错误信息
 (defun read-repo (path)
-  (let ((repo (list nil nil nil (list nil nil nil nil nil nil) nil nil)))
+  (let ((repo (list nil nil nil (list nil nil nil nil nil nil) nil nil path)))
     ;; 读取仓库名称
     (unless (uiop:file-exists-p (path-join path "仓库名称"))
       (return-from read-repo "“仓库名称”文件不存在"))
