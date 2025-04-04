@@ -231,7 +231,7 @@
 					 :initial-value "以下系统轮廓包含继承循环：")))
 	(when elist
 	  (return-from read-repo (reduce #'(lambda (a b) (concatenate 'string a " " b)) elist
-					 :initial-value "以下系统轮廓采用了不支持的 eapi："))))
+					 :initial-value "以下系统轮廓或其继承树中有系统轮廓采用了不支持的 eapi："))))
       (setf pflist (sort pflist #'(lambda (a b) (< (nth 6 a) (nth 6 b)))))
       (dolist (pf pflist)
 	(let ((pl-list (list nil nil nil nil nil nil nil nil nil nil nil))
