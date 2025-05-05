@@ -1,12 +1,3 @@
-(defconstant S-IFMT   #8r170000)	; 文件 mode 中的类型位掩码
-(defconstant S-IFSOCK #8r140000)	; 套接字
-(defconstant S-IFLNK  #8r120000)	; 符号链接
-(defconstant S-IFREG  #8r100000)	; 普通文件
-(defconstant S-IFBLK  #8r060000)	; 块设备
-(defconstant S-IFDIR  #8r040000)	; 目录
-(defconstant S-IFCHR  #8r020000)	; 字符设备
-(defconstant S-IFIFO  #8r010000)	; 管道
-
 ;; 递归遍历目录生成文件清单
 ;; 参数：
 ;;	path		要遍历的绝对路径。必须以 #\/ 结尾
@@ -24,12 +15,12 @@
     (dolist (f files)
       (let* ((name (namestring f))
 	     (lstat (sb-posix:lstat f))
-	     (file-type (logand (sb-posix:stat-mode lstat) S-IFMT)))
+	     (file-type (logand (sb-posix:stat-mode lstat) sb-posix:S-IFMT)))
 	(if (not absolute)
 	  (setf name (subseq name path-len)))
-	(if (= file-type S-IFLNK)
+	(if (= file-type sb-posix:S-IFLNK)
 	  (setf flist (nconc flist (list (list '|l| name '-> (sb-posix:readlink f) (sb-posix:stat-mtime lstat)))))
-	  (if (= file-type S-IFREG)
+	  (if (= file-type sb-posix:S-IFREG)
 	    (let ((proc (sb-ext:run-program *sha256sum-prog* (list (namestring f)) :wait t :output :stream)))
 	      (if (zerop (sb-ext:process-exit-code proc))
 		(setf flist (nconc flist (list (list '- name (sb-posix:stat-size lstat)
@@ -41,13 +32,13 @@
       (let* ((sub-path (namestring d))
 	     (name (string-right-trim "/" sub-path))
 	     (lstat (sb-posix:lstat d))
-	     (dir-type (logand (sb-posix:stat-mode lstat) S-IFMT)))
+	     (dir-type (logand (sb-posix:stat-mode lstat) sb-posix:S-IFMT)))
 	(if (not absolute)
 	  (setf name (subseq name path-len)))
-	(if (= dir-type S-IFDIR)
+	(if (= dir-type sb-posix:S-IFDIR)
 	  (setf flist (nconc flist (list (list '|d| (concatenate 'string name "/")))))
 	  (setf flist (nconc flist (list (list '|l| name '-> (sb-posix:readlink d) (sb-posix:stat-mtime lstat))))))
-	(unless (and (= dir-type S-IFLNK) (not bl-sym-dir))
+	(unless (and (= dir-type sb-posix:S-IFLNK) (not bl-sym-dir))
 	  (multiple-value-bind (sub-flist sub-elist) (file-list sub-path bl-sym-dir absolute)
 	    (if (not absolute)
 	      (progn

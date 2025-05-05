@@ -161,3 +161,10 @@
   `(nth 9 (caddr ,pf)))
 (defmacro profile-package.use.stable.mask (pf)
   `(nth 10 (caddr ,pf)))
+
+(defmacro mk-mask (depspec maskp)
+  `(cons ,depspec ,maskp))
+(defmacro mask-depspec (m)
+  `(car ,m))
+(defmacro mask-maskp (m)
+  `(cdr ,m))

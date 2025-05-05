@@ -2,12 +2,7 @@
 ;; 参数：
 ;;	liu		一个输入流
 ;; 返回值：
-;;	一个列表，每一项是一个变量的解析结果，
-;;	每个解析结果是一个列表，有以下 3 个元素：
-;;	* 属性选项。
-;;	* 变量名。
-;;	* 变量值。nil 或一个字符串，字符串内容
-;;	  和"declare -p"输出中的相同，包含双引号。
+;;	一个 <declare> 列表
 (defun parse-bash-declare (liu)
   (do ((current (read liu nil :eof) (read liu nil :eof))
        (attr (cons 'string nil) (cons 'string nil))
@@ -40,3 +35,12 @@
 	    (push (string (read-char liu)) v)))))
     ; var-lst
     (setf var-lst (nconc var-lst (list (list attr name value))))))
+
+(defmacro mk-declare (attribute name value)
+  `(list ,attribute ,name ,value))
+(defmacro declare-attribute (d)
+  `(car ,d))
+(defmacro declare-name (d)
+  `(cadr ,d))
+(defmacro declare-value (d)
+  `(caddr ,d))

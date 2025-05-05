@@ -148,7 +148,8 @@
 
 ;; 读取仓库目录
 ;; 参数：
-;;	path	仓库目录
+;;	path	仓库目录，不以 #\/ 结尾
+;;		不能是根目录
 ;; 返回值：
 ;;	一个 <仓库> 或错误信息
 (defun read-repo (path)
@@ -314,3 +315,18 @@
 		(return-from read-repo "enable 属性错误")))
 	    (return-from read-repo "“repo.conf”缺少 enable 属性")))))
     repo))
+
+(defmacro category-name (c)
+  `(car ,c))
+(defmacro category-pkgdirlist (c)
+  `(cdr ,c))
+(defmacro pkgdir-name (d)
+  `(car ,d))
+(defmacro pkgdir-locauxlist (d)
+  `(cdr ,d))
+(defmacro mk-locaux (form vstr)
+  `(cons ,form ,vstr))
+(defmacro locaux-form (loc)
+  `(car ,loc))
+(defmacro locaux-vstr (loc)
+  `(cdr ,loc))
