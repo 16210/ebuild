@@ -37,7 +37,7 @@
     (setf var-lst (nconc var-lst (list (list attr name value))))))
 
 (defmacro mk-declare (attribute name value)
-  `(list ,attribute ,name ,value))
+  `(list ,attribute ,name (format nil "~S" ,value)))
 (defmacro declare-attribute (d)
   `(car ,d))
 (defmacro declare-name (d)
