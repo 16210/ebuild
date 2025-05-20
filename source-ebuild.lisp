@@ -44,3 +44,32 @@
 	(setf vlist (nconc vlist (list (mk-declare "-x" (car m) (cdr m)))))))
     (setf vlist (nconc vlist (list (mk-declare "-x" "PATH" *ebuild-env-path*))))
     vlist))
+
+;; 从 ebuild 流中解析 EAPI
+;; 参数：
+;;	liu	ebuild 流
+;; 返回值：
+;;	EAPI 字符串或 nil
+(defun parse-eapi-stream (liu)
+  (do ((line (read-line liu nil :eof) (read-line liu nil :eof)))
+    ((eql line :eof))
+    (let ((cline (string-trim #(#\Space #\Tab) (car (string-split line #\#)))))
+      (when (string/= cline "")
+	(if (and (> (length cline) 5) (string= (subseq cline 0 5) "EAPI="))
+	  (progn
+	    (setf cline (subseq cline 5))
+	    (if (or (char= (char cline 0) #\") (char= (char cline 0) #\'))
+	      (if (and (> (length cline) 2) (char= (char cline 0) (char cline (1- (length cline)))))
+		(return-from parse-eapi-stream (subseq cline 1 (1- (length cline))))
+		(return-from parse-eapi-stream nil))
+	      (return-from parse-eapi-stream cline)))
+	  (return-from parse-eapi-stream nil))))))
+
+;; 从 ebuild 文件中解析 EAPI
+;; 参数：
+;;	ebuild	带路径的 ebuild 文件名
+;; 返回值：
+;;	EAPI 字符串或 nil
+(defun parse-eapi-file (ebuild)
+  (with-open-file (liu ebuild :direction :input)
+    (parse-eapi-stream liu)))
