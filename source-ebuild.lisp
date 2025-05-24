@@ -73,3 +73,44 @@
 (defun parse-eapi-file (ebuild)
   (with-open-file (liu ebuild :direction :input)
     (parse-eapi-stream liu)))
+
+;; 生成 inherit 和 EXPORT_FUNCTIONS 函数，
+;;	以文件 inherit.sh 的形式保存到 <构建目录>/function 目录下
+;; 参数：
+;;	builddir	软件包的构建目录，结尾没有 "/"
+;;	repo-path	仓库顶层目录，结尾没有 "/"
+;; 返回值：
+;;	nil
+(defun gen-inherit (builddir repo-path)
+  (with-open-file (liu (concatenate 'string builddir "/function/inherit.sh") :direction :output)
+    ;; 生成 EXPORT_FUNCTIONS 函数
+    (format liu "EXPORT_FUNCTIONS ()~%{~%")
+    (format liu "[ -z \"${ECLASS}\" ] && return~%")
+    (format liu "while [ $# -gt 0 ]~%do~%")
+    (format liu "echo -e \"${1} ()\\n{\" > ~A/default_phase/${1}.sh~%" builddir)
+    (format liu "echo -e \"\\t${ECLASS}_${1} \\$@\" >> ~A/default_phase/${1}.sh~%" builddir)
+    (format liu "echo \"}\" >> ~A/default_phase/${1}.sh~%" builddir)
+    (format liu "shift~%done~%}~%")
+    ;; 生成 inherit 函数
+    (format liu "inherit ()~%{~%")
+    (format liu "if [ -n \"${ECLASS}\" ]~%then~%")
+    (format liu "touch -a ~A/eclass/ECLASS.stack~%" builddir)
+    (format liu "echo -e \"${ECLASS}\\n$(cat ~A/eclass/ECLASS.stack)\" | tr --squeeze-repeats '\\n' > ~A/eclass/ECLASS.stack.new~%"
+		builddir builddir)
+    (format liu "mv -f ~A/eclass/ECLASS.stack.new ~A/eclass/ECLASS.stack~%" builddir builddir)
+    (format liu "fi~%")
+    (format liu "while [ $# -gt 0 ]~%do~%")
+    (format liu "export ECLASS=${1}~%")
+    (format liu "if [ -z \"${INHERITED}\" ]~%then~%")
+    (format liu "export INHERITED=${1}~%else~%")
+    (format liu "export INHERITED=\"${INHERITED} ${1}\"~%fi~%")
+    (format liu "source ~A/eclass/${1}.eclass~%" repo-path)
+    (dolist (i '("IUSE" "REQUIRED_USE" "PROPERTIES" "RESTRICT" "BDEPEND" "RDEPEND" "PDEPEND" "IDEPEND"))
+      (format liu "echo ${~A} >> ~A/eclass/~A~%" i builddir i)
+      (format liu "unset -v ~A~%" i))
+    (format liu "unset -v ECLASS~%")
+    (format liu "shift~%done~%")
+    (format liu "if [ -s ~A/eclass/ECLASS.stack ]~%then~%" builddir)
+    (format liu "export ECLASS=$(head -n 1 ~A/eclass/ECLASS.stack)~%" builddir)
+    (format liu "sed -i '1d' ~A/eclass/ECLASS.stack~%" builddir)
+    (format liu "fi~%}~%")))
