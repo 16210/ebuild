@@ -99,11 +99,12 @@
     (format liu "shift~%done~%}~%")
     ;; 生成 inherit 函数
     (format liu "inherit ()~%{~%")
-    (format liu "if [ -n \"${ECLASS}\" ]~%then~%")
     (format liu "touch -a ~A/eclass/ECLASS.stack~%" builddir)
+    (format liu "if [ -n \"${ECLASS}\" ]~%then~%")
     (format liu "echo -e \"${ECLASS}\\n$(cat ~A/eclass/ECLASS.stack)\" | tr --squeeze-repeats '\\n' > ~A/eclass/ECLASS.stack.new~%"
 		builddir builddir)
     (format liu "mv -f ~A/eclass/ECLASS.stack.new ~A/eclass/ECLASS.stack~%" builddir builddir)
+    (format liu "mkdir ~A/eclass/$(tac ~A/eclass/ECLASS.stack | tr '\\n' '/')~%" builddir builddir)
     (format liu "fi~%")
     (format liu "while [ $# -gt 0 ]~%do~%")
     (format liu "export ECLASS=${1}~%")
@@ -112,11 +113,138 @@
     (format liu "export INHERITED=\"${INHERITED} ${1}\"~%fi~%")
     (format liu "source ~A/eclass/${1}.eclass~%" repo-path)
     (dolist (i '("IUSE" "REQUIRED_USE" "PROPERTIES" "RESTRICT" "BDEPEND" "RDEPEND" "PDEPEND" "IDEPEND"))
-      (format liu "echo ${~A} >> ~A/eclass/~A~%" i builddir i)
+      (format liu "echo ${~A} >> ~A/eclass/$(tac ~A/eclass/ECLASS.stack | tr '\\n' '/')~A~%" i builddir builddir i)
       (format liu "unset -v ~A~%" i))
     (format liu "unset -v ECLASS~%")
     (format liu "shift~%done~%")
     (format liu "if [ -s ~A/eclass/ECLASS.stack ]~%then~%" builddir)
+    (dolist (i '("IUSE" "REQUIRED_USE" "PROPERTIES" "RESTRICT" "BDEPEND" "RDEPEND" "PDEPEND" "IDEPEND"))
+      (format liu "~A=$(cat ~A/eclass/$(tac ~A/eclass/ECLASS.stack | tr '\\n' '/')~A | tr --squeeze-repeats '\\n' ' ' | sed 's/ $//')~%" i builddir builddir i))
+    (format liu "rm -r ~A/eclass/$(tac ~A/eclass/ECLASS.stack | tr '\\n' '/')~%" builddir builddir)
     (format liu "export ECLASS=$(head -n 1 ~A/eclass/ECLASS.stack)~%" builddir)
     (format liu "sed -i '1d' ~A/eclass/ECLASS.stack~%" builddir)
     (format liu "fi~%}~%")))
+
+;; 拉入非二进制包的 ebuild，生成 “变量.sh” 和 “函数.sh” 两个文件
+;; 参数：
+;;	reponame	<仓库名称>
+;;	category	<类别名称>
+;;	pkgname		<非限定的软件包名称>
+;;	vstr		<版本字符串>
+;;	form		<形式>
+;;	installp	编译完是否安装
+;; 返回值：
+;;	“变量.sh” 的 <declare> 列表，
+;;	或 :error，表示错误
+(defun source-ebuild (reponame category pkgname vstr form installp)
+  (let* ((builddir *builddir-location*)
+	 (repo (find reponame *repo-list* :key #'(lambda (r) (repo-name r)) :test #'string=))
+	 (ebuild-path (path-join (repo-rootpath repo) category pkgname))
+	 (ebuild-fname (concatenate 'string pkgname "-" vstr
+					    (if (eql form :ebuild) "" ".src")
+					    ".ebuild")))
+    ;; 创建 <仓库名称>/<类别名称>/<非限定的软件包名称>-<版本字符串> 目录
+    (dolist (i (list reponame category (concatenate 'string pkgname "-" vstr)))
+      (setf builddir (concatenate 'string builddir "/" i))
+      (unless (uiop:directory-exists-p builddir)
+	(sb-posix:mkdir builddir *builddir-mode*)))
+    ;; 根据 form 复制 ebuild 或解压缩归档
+    (if (eql form :ebuild)
+      (uiop:copy-file (concatenate 'string ebuild-path "/" ebuild-fname)
+		      (concatenate 'string builddir "/" ebuild-fname))
+      (unless (zerop (sb-ext:process-exit-code
+		       (sb-ext:run-program *tar-prog* (list "-C" builddir "-xf" "-") :wait t
+					   :input (concatenate 'string ebuild-path "/" ebuild-fname))))
+	(return-from source-ebuild :error)))
+    ;; 创建 DISTDIR，D，BUILD，ENV，eclass，default_phase，function 目录
+    (dolist (i '("DISTDIR" "D" "BUILD" "ENV" "eclass" "default_phase" "function"))
+      (unless (uiop:directory-exists-p (concatenate 'string builddir "/" i))
+	(sb-posix:mkdir (concatenate 'string builddir "/" i) *builddir-mode*)))
+    ;; 生成 inherit 和 EXPORT_FUNCTIONS 命令
+    (gen-inherit builddir (repo-rootpath repo))
+    ;; 构造拉入前 ebuild 运行时环境变量并保存到“变量.sh”
+    (let* ((pf (assoc (repo-active-profile repo)
+		      (repo-profiles repo) :test #'string=))
+	   (init-vars (cons-init-vars category pkgname vstr
+				      (if (eql form :ebuild)
+					(concatenate 'string ebuild-path "/files")
+					(concatenate 'string builddir "/FILESDIR"))
+				      (concatenate 'string builddir "/DISTDIR")
+				      (concatenate 'string builddir "/BUILD")
+				      (if installp "source" "buildonly")
+				      (profile-make.defaults pf))))
+      (with-open-file (liu (concatenate 'string builddir "/ENV/变量.sh") :direction :output)
+	(write-bash-declare liu init-vars)))
+    ;; 复制阶段函数的默认实现
+    (dolist (i '("pkg_pretend.sh" "pkg_setup.sh" "src_unpack.sh" "src_prepare.sh"
+		 "src_configure.sh" "src_compile.sh" "src_test.sh" "src_install.sh"
+		 "pkg_preinst.sh" "pkg_postinst.sh" "pkg_prerm.sh" "pkg_postrm.sh"
+		 "pkg_config.sh" "pkg_info.sh" "pkg_nofetch.sh"))
+      (uiop:copy-file (concatenate 'string *pkgmgr-rootpath* "/lib/ebuild/default_phase/" i)
+		      (concatenate 'string builddir "/default_phase/" i)))
+
+    (let* ((cmd (with-output-to-string (str)
+		  ;; 构造 bash 命令
+		  (format str "set -e~%")
+		  (format str "shopt -s failglob~%")
+		  (format str "~A/lib/ebuild/command/nop~%" *pkgmgr-rootpath*)
+		  (format str "declare -p > ~A/ENV/空环境变量.sh~%" builddir)
+		  (format str "source ~A/ENV/变量.sh~%" builddir)
+		  (dolist (i '("nonfatal.sh" "dest-opt.sh" "text-list.sh" "ver.sh" "get_libdir.sh"))
+		    (format str "source ~A/lib/ebuild/function/~A~%" *pkgmgr-rootpath* i))
+		  (format str "source ~A/function/inherit.sh~%" builddir)
+		  (format str "source ~A/~A-~A.ebuild~%" builddir pkgname vstr)
+		  (format str "unset -f inherit EXPORT_FUNCTIONS~%")
+		  (format str "declare -p > ~A/ENV/变量.sh~%" builddir)
+		  (dolist (i '("pkg_pretend" "pkg_setup" "src_unpack" "src_prepare"
+			       "src_configure" "src_compile" "src_test" "src_install"
+			       "pkg_preinst" "pkg_postinst" "pkg_prerm" "pkg_postrm"
+			       "pkg_config" "pkg_info" "pkg_nofetch"))
+		    (format str "[ -z \"$(declare -f ~A)\" ] && source ~A/default_phase/~A.sh~%" i builddir i))
+		  (format str "declare -f > ~A/ENV/函数.sh~%" builddir)))
+	   ;; 调用 bash（env -i --chdir=<WORKDIR> *bash-prog* --norc --noprofile -c <命令>）
+	   (proc (sb-ext:run-program *env-prog*
+				     (list "-i" (format nil "--chdir=~A/BUILD" builddir)
+					   *bash-prog* "--norc" "--noprofile" "-c" cmd)
+				     :wait t))
+
+	   empty-env-var-names ebuild-env-vars)
+      (unless (zerop (sb-ext:process-exit-code proc))
+	(return-from source-ebuild :error))
+      ;; 读取 “空环境变量.sh”，转换成变量名称列表，并剔除 PATH
+      (with-open-file (liu (concatenate 'string builddir "/ENV/空环境变量.sh") :direction :input)
+	(setf empty-env-var-names (delete "PATH" (mapcar #'(lambda (d) (declare-name d))
+							 (parse-bash-declare liu))
+					  :test #'string=)))
+      (delete-file (concatenate 'string builddir "/ENV/空环境变量.sh"))
+      ;; 读取 “变量.sh”，转换成 <declare> 列表，并剔除空环境中的变量
+      (with-open-file (liu (concatenate 'string builddir "/ENV/变量.sh") :direction :input)
+	(setf ebuild-env-vars (delete-if #'(lambda (v)
+					     (find (declare-name v) empty-env-var-names :test #'string=))
+					 (parse-bash-declare liu))))
+      ;; 应用隐式 RDEPEND 规则
+      (unless (find "RDEPEND" ebuild-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=)
+	(let ((bdepend (find "BDEPEND" ebuild-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=)))
+	  (when bdepend
+	    (setf ebuild-env-vars (nconc ebuild-env-vars
+					 (list (mk-declare-scalar "--" "RDEPEND" (declare-value-scalar bdepend))))))))
+      ;; 处理 eclass 累加变量
+      (dolist (var '("IUSE" "REQUIRED_USE" "PROPERTIES" "RESTRICT" "BDEPEND" "RDEPEND" "PDEPEND" "IDEPEND"))
+	(let ((var-declare (find var ebuild-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=))
+	      (var-file (concatenate 'string builddir "/eclass/" var))
+	      (eclass-value ""))
+	  (when (uiop:file-exists-p var-file)
+	    (with-open-file (liu var-file :direction :input)
+	      (do ((line (read-line liu nil :eof) (read-line liu nil :eof)))
+		((eql line :eof)
+		 (setf eclass-value (string-left-trim #(#\Space) eclass-value)))
+		(when (string/= line "")
+		  (setf eclass-value (concatenate 'string eclass-value " " line)))))
+	    (when (string/= eclass-value "")
+	      (if var-declare
+		(set-declare-value-scalar var-declare (concatenate 'string (declare-value-scalar var-declare) " " eclass-value))
+		(setf ebuild-env-vars (nconc ebuild-env-vars (list (mk-declare-scalar "--" var eclass-value)))))))))
+      ;; 输出 ebuild 运行环境变量到 “变量.sh”，返回这些变量的 <declare> 列表
+      (with-open-file (dst (concatenate 'string builddir "/ENV/变量.sh") :direction :output :if-exists :supersede)
+	(write-bash-declare dst ebuild-env-vars))
+      ebuild-env-vars)))
