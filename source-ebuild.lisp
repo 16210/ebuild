@@ -6,13 +6,13 @@
 ;;	filesdir	FILESDIR 的值
 ;;	distdir		DISTDIR 的值
 ;;	workdir		WORKDIR 的值
-;;	build-type	BUILD_TYPE 的值
+;;	install-type	INSTALL_TYPE 的值
 ;;	make.defaults	当前使用的系统轮廓的 <构建配置>
 ;; 返回值：
 ;;	一个 <declare> 列表
-;; 备注：
+;; 说明：
 ;;	* CHOST，CBUILD 和 CTARGET 不设置
-(defun cons-init-vars (cname pname vstr filesdir distdir workdir build-type make.defaults)
+(defun cons-init-vars (cname pname vstr filesdir distdir workdir install-type make.defaults)
   (let (rcomp ecomp (mid vstr) vlist
 	(default-env-unset (list "GZIP" "BZIP" "BZIP2" "CDPATH" "GREP_OPTIONS" "GREP_COLOR" "GLOBIGNORE"))
 	(env-unset (assoc "ENV_UNSET" make.defaults :test #'string=)))
@@ -35,7 +35,7 @@
 		      (mk-declare-scalar "-rx" "FILESDIR" filesdir)
 		      (mk-declare-scalar "-rx" "DISTDIR" distdir)
 		      (mk-declare-scalar "-x" "WORKDIR" workdir)
-		      (mk-declare-scalar "-rx" "BUILD_TYPE" build-type)))
+		      (mk-declare-scalar "-rx" "INSTALL_TYPE" install-type)))
     (if env-unset
       (setf env-unset (append (cdr env-unset) default-env-unset))
       (setf env-unset default-env-unset))
@@ -248,3 +248,93 @@
       (with-open-file (dst (concatenate 'string builddir "/ENV/变量.sh") :direction :output :if-exists :supersede)
 	(write-bash-declare dst ebuild-env-vars))
       ebuild-env-vars)))
+
+;; 拉入二进制包的 “环境.sh”，生成 “变量.sh” 和 “函数.sh” 两个文件
+;; 参数：
+;;	reponame	<仓库名称>
+;;	category	<类别名称>
+;;	pkgname		<非限定的软件包名称>
+;;	vstr		<版本字符串>
+;;	form		<形式>
+;;	root		ROOT 变量的新值(软件包将要安装到的根目录的绝对路径，不以斜杠结尾)
+;; 返回值：
+;;	“变量.sh” 的 <declare> 列表，
+;;	或 :error，表示错误
+;; 说明：
+;;	拉入 “环境.sh” 后会重新赋值以下变量：
+;;	* ROOT 和 EROOT
+;;	* T
+;;	* TMPDIR
+;;	* HOME
+;;	* D 和 ED
+;;	* PATH
+(defun source-binpkg-env (reponame category pkgname vstr form root)
+  (let* ((builddir *builddir-location*)
+	 (repo (find reponame *repo-list* :key #'(lambda (r) (repo-name r)) :test #'string=))
+	 (ebuild-path (path-join (repo-rootpath repo) category pkgname))
+	 (pkg-fname (concatenate 'string pkgname "-" vstr "." form ".ebuild")))
+    ;; 创建 <仓库名称>/<类别名称>/<非限定的软件包名称>-<版本字符串> 目录
+    (dolist (i (list reponame category (concatenate 'string pkgname "-" vstr)))
+      (setf builddir (concatenate 'string builddir "/" i))
+      (unless (uiop:directory-exists-p builddir)
+	(sb-posix:mkdir builddir *builddir-mode*)))
+    ;; 创建 ENV，T，TMPDIR，HOME 目录
+    (dolist (i '("ENV" "T" "TMPDIR" "HOME"))
+      (sb-posix:mkdir (concatenate 'string builddir "/" i) *builddir-mode*))
+    ;; 解压缩归档
+    (unless (zerop (sb-ext:process-exit-code
+		     (sb-ext:run-program *tar-prog*
+					 (list "-C" builddir "-xf" "-")
+					 :input (concatenate 'string ebuild-path "/" pkg-fname)
+					 :wait t)))
+      (return-from source-binpkg-env :error))
+
+    (let* ((cmd (with-output-to-string (str)
+		  ;; 构造 bash 命令
+		  (format str "set -e~%")
+		  (format str "declare -p > ~A/ENV/空环境变量.sh~%" builddir)
+		  (format str "source ~A/环境.sh~%" builddir)
+		  (format str "declare -p > ~A/ENV/变量.sh~%" builddir)
+		  (format str "declare -f > ~A/ENV/函数.sh~%" builddir)))
+	   ;; 调用 bash（env -i --chdir=<BUILD> *bash-prog* --norc --noprofile -c <命令>）
+	   (proc (sb-ext:run-program *env-prog*
+				     (list "-i" (format nil "--chdir=~A" builddir)
+					   *bash-prog* "--norc" "--noprofile" "-c" cmd)
+				     :wait t))
+
+	   empty-env-var-names pkg-env-vars)
+      (unless (zerop (sb-ext:process-exit-code proc))
+	(return-from source-binpkg-env :error))
+      ;; 读取 “空环境变量.sh”，转换成变量名称列表，并剔除 PATH
+      (with-open-file (liu (concatenate 'string builddir "/ENV/空环境变量.sh") :direction :input)
+	(setf empty-env-var-names (delete "PATH" (mapcar #'(lambda (d) (declare-name d))
+							 (parse-bash-declare liu))
+					  :test #'string=)))
+      (delete-file (concatenate 'string builddir "/ENV/空环境变量.sh"))
+      ;; 读取 “变量.sh”，转换成 <declare> 列表，并剔除空环境中的变量
+      (with-open-file (liu (concatenate 'string builddir "/ENV/变量.sh") :direction :input)
+	(setf pkg-env-vars (delete-if #'(lambda (v)
+					  (find (declare-name v) empty-env-var-names :test #'string=))
+				      (parse-bash-declare liu))))
+      ;; 变量重新赋值
+      (dolist (i '("T" "TMPDIR" "HOME"))
+	(set-declare-value-scalar (find i pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=)
+				  (concatenate 'string builddir "/" i)))
+      (let* ((eprefix (declare-value-scalar (find "EPREFIX" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=)))
+	     (eroot-new-value (concatenate 'string root eprefix))
+	     (d-new-value (concatenate 'string builddir "/D"))
+	     (ed-new-value (concatenate 'string d-new-value eprefix)))
+	(set-declare-value-scalar (find "ROOT" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=) root)
+	(set-declare-value-scalar (find "EROOT" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=) eroot-new-value)
+	(set-declare-value-scalar (find "D" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=) d-new-value)
+	(set-declare-value-scalar (find "ED" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=) ed-new-value))
+      (set-declare-value-scalar (find "PATH" pkg-env-vars :key #'(lambda (d) (declare-name d)) :test #'string=) *ebuild-env-path*)
+      ;; 删除下一个阶段函数需要重新赋值的只读变量
+      (setf pkg-env-vars (delete-if #'(lambda (v)
+					(find (declare-name v) '("EBUILD_PHASE" "EBUILD_PHASE_FUNC" "INSTALL_TYPE")
+					      :test #'string=))
+				    pkg-env-vars))
+      ;; 输出二进制包的运行环境变量到 “变量.sh”，返回这些变量的 <declare> 列表
+      (with-open-file (dst (concatenate 'string builddir "/ENV/变量.sh") :direction :output :if-exists :supersede)
+	(write-bash-declare dst pkg-env-vars))
+      pkg-env-vars)))
