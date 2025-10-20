@@ -49,3 +49,96 @@
 ;; [谓词] <说明符类型> 是不是 <应用标志条件组>
 (defmacro spectype-usecond-p (stype)
   `(consp ,stype))
+
+
+;; 拆分说明符
+;; 参数：
+;;	spec-string	说明符字符串
+;;	atom-spec-p	原子说明符判别函数
+;;	src-uri-p	拆分的是 SRC_URI
+;; 返回值：
+;;	一个 <说明符> 列表或 :error
+(defun split-spec (spec-string atom-spec-p src-uri-p)
+  (labels (;; 创建非原子说明符
+	   ;; 参数：
+	   ;;		group-head	说明符左圆括号之前的部分
+	   ;;		content		说明符圆括号中的部分
+	   ;; 创建成功返回一个 <说明符>，
+	   ;; 说明符不合法则从 split-spec 函数返回 :error
+	   (cons-group-spec (group-head content)
+			    (when (every #'(lambda (c)		; 此处判断的逻辑应该是
+					     (char= c #\Space))	; 长度为0或所有字符都是空格
+					 content)		; 但长度为0时every返回t，所以省略长度判断
+			      (return-from split-spec :error))
+			    (cond
+			      ((string= group-head "")
+			       (make-spec :all content))
+			      ((string= group-head "||")
+			       (make-spec :any content))
+			      ((string= group-head "^^")
+			       (make-spec :=1 content))
+			      ((string= group-head "??")
+			       (make-spec :<=1 content))
+			      (t		; 应用标志条件组
+				(let ((enable? (char/= (char group-head 0) #\!))
+				      flag (len (length group-head)))
+				  (when (char/= (char group-head (1- len)) #\?)
+				    (return-from split-spec :error))
+				  (setf flag (subseq group-head (if enable? 0 1) (1- len)))
+				  (unless (use-flag-name-p flag t)
+				    (return-from split-spec :error))
+				  (make-spec (mk-usecond enable? flag) content)))))
+	   ;; 给定一个说明符字符串和一个 #\) 的索引，
+	   ;; 向左查找相匹配的 #\( 并将其索引返回，
+	   ;; 找不到则从 split-spec 函数返回 :error
+	   (prev-open-parenthesis (spec-str idx)
+				  (do ((k 1))
+				    ((minusp (decf idx))
+				     (return-from split-spec :error))
+				    (if (char= (char spec-str idx) #\))
+				      (incf k)
+				      (when (and (char= (char spec-str idx) #\()
+						 (zerop (decf k)))
+					(return-from prev-open-parenthesis idx)))))
+	   ;; 说明符字符串转 <说明符> 列表
+	   ;; 转换成功返回一个 <说明符> 列表，
+	   ;; 如果有某个组说明符不合法
+	   ;; 则从 split-spec 函数返回 :error
+	   (parse-spectext (spec-str)
+			   (let ((ep (position #\Space spec-str :from-end t :test #'char/=))
+				 sp tail-spec)
+			     (when ep
+			       (if (char= (char spec-str ep) #\))	; 检查是组说明符还是原子说明符
+				 (let ((kp (prev-open-parenthesis spec-str ep)))
+				   (setf sp (position #\Space spec-str :from-end t :test #'char= :end kp)
+					 sp (if sp (1+ sp) 0)
+					 tail-spec (cons-group-spec (subseq spec-str sp kp) (subseq spec-str (1+ kp) ep))))
+				 (setf sp (position #\Space spec-str :from-end t :test #'char= :end ep)
+				       sp (if sp (1+ sp) 0)
+				       tail-spec (make-spec t (subseq spec-str sp (1+ ep)))))
+			       (nconc (parse-spectext (subseq spec-str 0 sp)) (list tail-spec))))))
+
+    (let ((spec-list (parse-spectext spec-string)))
+      ;; 处理 "->"
+      (when src-uri-p
+	(do ((prev nil iter)
+	     (iter spec-list (cdr iter))
+	     (next (cdr spec-list) (cdr next)))
+	  ((null iter))
+	  (when (and (eql (spec-type (car iter)) t)
+		     (string= (spec-text (car iter)) "->"))
+	    (if (and (eql (spec-type (car prev)) t)
+		     (eql (spec-type (car next)) t))
+	      (setf (spec-text (car prev)) (concatenate 'string
+							(spec-text (car prev))
+							" -> "
+							(spec-text (car next)))
+		    (cdr prev) (cdr next)
+		    iter prev
+		    next (cdr next))
+	      (return-from split-spec :error)))))
+      ;; 检查原子说明符是否合法
+      (dolist (spec spec-list spec-list)
+	(when (and (eql (spec-type spec) t)
+		   (not (funcall atom-spec-p (spec-text spec))))
+	  (return-from split-spec :error))))))
