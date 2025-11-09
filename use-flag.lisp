@@ -142,3 +142,68 @@
 	(when (and (eql (spec-type spec) t)
 		   (not (funcall atom-spec-p (spec-text spec))))
 	  (return-from split-spec :error))))))
+
+(let* ((qiongjv-cache-list (list (list (list nil) (list t))))
+       (qiongjv-cache-length 1)
+       (qiongjv-cache-tailnode qiongjv-cache-list))
+  ;; 计算组说明符所有可能的掩码
+  ;; 参数：
+  ;;	len	组说明符的成员数量
+  ;;	gtype	组说明符类型，只能是 :all，:any，:=1 或 :<=1
+  ;;	match?	组说明符必须匹配(t)还是必须不匹配(nil)
+  ;; 返回值：
+  ;;	一张 <掩码> 列表
+  ;;	<掩码> 是一张长度为 len，元素是 t 或 nil 的列表，
+  ;;	每个元素表示同索引的组成员是否应该匹配。
+  (defun mask-list (len gtype &optional (match? t))
+    (labels (;; 穷举 2^len 个 <掩码>
+	     (qiongjv ()
+		      (do ()
+			((>= qiongjv-cache-length len))
+			(setf (cdr qiongjv-cache-tailnode)
+			      (cons (nconc (mapcan #'(lambda (m) (list (cons nil m)))
+						   (car qiongjv-cache-tailnode))
+					   (mapcan #'(lambda (m) (list (cons t m)))
+						   (car qiongjv-cache-tailnode)))
+				    nil)
+			      qiongjv-cache-tailnode
+			      (cdr qiongjv-cache-tailnode))
+			(incf qiongjv-cache-length))
+		      (if (= qiongjv-cache-length len)
+			(copy-list (car qiongjv-cache-tailnode))
+			(copy-list (nth (1- len) qiongjv-cache-list))))
+	     ;; 计算 match? 等于 t 时单选组或至多单选组的 <掩码> 列表
+	     (oneof-group-mask-list ()
+				    (let (mlist)
+				      (dotimes (i len)
+					(let (mask)
+					  (dotimes (j len)
+					    (setf mask (cons (= j i) mask)))
+					  (setf mlist (cons mask mlist))))
+				      (when (eql gtype :<=1)
+					(setf mlist (cons (make-list len) mlist)))
+				      mlist)))
+      (case gtype
+	(:all
+	  (if match?
+	    (list (make-list len :initial-element t))
+	    (cdr (nreverse (qiongjv)))))
+	(:any
+	  (if match?
+	    (cdr (qiongjv))
+	    (list (make-list len))))
+	(t
+	  (if match?
+	    (oneof-group-mask-list)
+	    (let ((mlist (qiongjv)))
+	      (do ((prev-node mlist)
+		   (i 1 (1+ i))
+		   (power 1))
+		((null (cdr prev-node)))
+		(if (= i power)
+		  (setf (cdr prev-node) (cddr prev-node)
+			power (* power 2))
+		  (setf prev-node (cdr prev-node))))
+	      (if (eql gtype :=1)
+		mlist
+		(cdr mlist)))))))))
