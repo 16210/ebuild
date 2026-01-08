@@ -347,3 +347,73 @@
       (values group-nig-ulist+ group-nig-ulist-
 	      group-ig-ulist+ group-ig-ulist-)
       (values :not-matched mismatched-flag))))
+
+;; 计算启用的应用标志列表
+;; 参数：
+;;	required-use	软件包 REQUIRED_USE 的值
+;;	iuse-effective	一个应用标志列表，表示软件包的 IUSE_EFFECTIVE
+;;	use+		必须启用的应用标志列表
+;;	use-		必须禁用的应用标志列表
+;;	iuse		软件包 IUSE 的值
+;; 返回值：
+;;	一个由启用的应用标志列表组成的列表(非空)，
+;;	或 :not-effective，表示
+;;	REQUIRED_USE 中有不在 iuse-effective 中的标志，
+;;	或 :not-matched，表示应用标志不匹配
+;;	或 :error，表示 REQUIRED_USE 不合法
+(defun calc-use-enable (required-use iuse-effective use+ use- iuse)
+  (let ((iuse-enable (mapcan #'(lambda (flag)
+				 (when (char= (char flag 0) #\+)
+				   (list (subseq flag 1))))
+			     (delete "" (string-split iuse #\Space) :test #'string=)))
+	required-ulist+ required-ulist-)
+    (labels (;; 将一个 <说明符> 转成 <说明符*>
+	     ;; 遇到不在 iuse-effective 中的应用标志
+	     ;; 从 calc-use-enable 函数返回 :not-effective，
+	     ;; REQUIRED_USE 不合法从 calc-use-enable 函数返回 :error
+	     (spec->spec* (spec)
+			  (let ((stype (spec-type spec))
+				(scontent (spec-text spec)))
+			    (if (eql stype t)
+			      (let* ((block? (char= (char scontent 0) #\!))
+				     (flag (if block? (subseq scontent 1) scontent)))
+				(unless (member flag iuse-effective :test #'string=)
+				  (return-from calc-use-enable :not-effective)))
+			      (if (and (spectype-usecond-p stype)
+				       (not (member (usecond-flag stype) iuse-effective :test #'string=)))
+				(return-from calc-use-enable :not-effective)
+				(let ((spec-list (split-spec scontent
+							     #'(lambda (a)
+								 (or (and (char= (char a 0) #\!)
+									  (use-flag-name-p (subseq a 1) t))
+								     (use-flag-name-p a t)))
+							     nil)))
+				  (if (eql spec-list :error)
+				    (return-from calc-use-enable :error))
+				  (setf scontent nil)
+				  (dolist (s spec-list)
+				    (setf scontent (nconc scontent (list (spec->spec* s))))))))
+			    (make-spec* stype scontent))))
+      (if (some #'(lambda (c) (char/= c #\Space)) required-use)
+	(let ((spec* (spec->spec* (make-spec :all required-use))))
+	  (multiple-value-bind (nig-ulist+ nig-ulist- ig-ulist+ ig-ulist-) (use-state-constraints use+ use- :all 0 0 (spec*-content spec*) t)
+	    (if (listp nig-ulist+)
+	      (setf required-ulist+ (nconc nig-ulist+ ig-ulist+)
+		    required-ulist- (nconc nig-ulist- ig-ulist-))
+	      (return-from calc-use-enable nig-ulist+))))
+	(setf required-ulist+ (list use+)
+	      required-ulist- (list use-)))
+      (do ((ulist-node+ required-ulist+ (cdr ulist-node+))
+	   (ulist-node- required-ulist- (cdr ulist-node-)))
+	((null ulist-node+))
+	(let* ((free-flags (set-difference iuse-effective (append (car ulist-node+) (car ulist-node-)) :test #'string=))
+	       (nig-ulist+ (use-state-constraints nil nil :any 0 0 (mapcar #'(lambda (f) (make-spec* t f)) free-flags) t)))
+	  (dolist (nig-use+ nig-ulist+)
+	    (setf required-ulist+ (cons (nconc (copy-list nig-use+)
+					       (car ulist-node+))
+					required-ulist+)))))
+      (mapcar #'car (sort (mapcar #'(lambda (u)
+				      (let ((s (length (intersection u iuse-enable :test #'string=))))
+					(cons u s)))
+				  required-ulist+)
+			  #'> :key #'cdr)))))
