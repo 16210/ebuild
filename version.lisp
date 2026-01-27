@@ -1,12 +1,12 @@
 (defmacro version-epoch (ver)
   `(car ,ver))
-(defmacro version-number (ver)
+(defmacro version-numberlist (ver)
   `(cadr ,ver))
 (defmacro version-letter (ver)
   `(caddr ,ver))
 (defmacro version-suffix (ver)
   `(cadddr ,ver))
-(defmacro version-revision (ver)
+(defmacro version-revnumber (ver)
   `(nth 4 ,ver))
 
 ;; 版本解析
@@ -34,8 +34,8 @@
 				      (setf (version-letter pkg-version) (char s (1- len))
 					    s (subseq s 0 (1- len))))
 				    (dolist (i (string-split s #\.))
-				      (setf (version-number pkg-version)
-					    (nconc (version-number pkg-version)
+				      (setf (version-numberlist pkg-version)
+					    (nconc (version-numberlist pkg-version)
 						   (list (parse-unsigned-int i)))))))
 	     ;; 解析去掉下划线的后缀部分
 	     (parse-suffix (s)
@@ -53,7 +53,7 @@
 	     (parse-revision (s)
 			     (unless (and (> (length s) 1) (char= (char s 0) #\r))
 			       (return-from parse-version))
-			     (setf (version-revision pkg-version)
+			     (setf (version-revnumber pkg-version)
 				   (parse-unsigned-int (subseq s 1)))))
       (case (length comp)
 	(1
@@ -104,15 +104,15 @@
 	 (setf version (parse-version ver))
 	 (if star
 	   (if (find #\- ver :test #'char=)
-	     (cons version (+ 5 (length (version-number version))))
+	     (cons version (+ 5 (length (version-numberlist version))))
 	     (if (char-in-range (char (car (last (string-split ver #\_))) 0)
 				#\a #\z)
 	       (if (char-in-range (char ver (1- len)) #\0 #\9)
-		 (cons version (+ 4 (length (version-number version))))
-		 (cons version (+ 3 (length (version-number version)))))
+		 (cons version (+ 4 (length (version-numberlist version))))
+		 (cons version (+ 3 (length (version-numberlist version)))))
 	       (if (char-in-range (char ver (1- len)) #\a #\z)
-		 (cons version (+ 2 (length (version-number version))))
-		 (cons version (+ 1 (length (version-number version)))))))
+		 (cons version (+ 2 (length (version-numberlist version))))
+		 (cons version (+ 1 (length (version-numberlist version)))))))
 	   (cons version 0)))))
 
 ;; 版本比较
@@ -131,14 +131,14 @@
 				    (version-epoch b))))
   (decf cnt)
   ;; 比较数字部分
-  (do ((na (version-number a) (cdr na))
-       (nb (version-number b) (cdr nb)))
+  (do ((na (version-numberlist a) (cdr na))
+       (nb (version-numberlist b) (cdr nb)))
     ((or (null na) (null nb)))
     (when (or (/= (car na) (car nb)) (zerop (decf cnt)))
       (return-from version-compare (- (car na) (car nb)))))
-  (when (/= (length (version-number a)) (length (version-number b)))
-    (return-from version-compare (- (length (version-number a))
-				    (length (version-number b)))))
+  (when (/= (length (version-numberlist a)) (length (version-numberlist b)))
+    (return-from version-compare (- (length (version-numberlist a))
+				    (length (version-numberlist b)))))
   ;; 比较字母部分
   (let ((la (if (version-letter a)
 	      (char-code (version-letter a))
@@ -167,4 +167,11 @@
   ;; 比较修订部分
   (if ignore-revision-p
     0
-    (- (version-revision a) (version-revision b))))
+    (- (version-revnumber a) (version-revnumber b))))
+
+(defmacro mk-version* (ver cmpcount)
+  `(cons ,ver ,cmpcount))
+(defmacro version*-version (ver*)
+  `(car ,ver*))
+(defmacro version*-cmpcount (ver*)
+  `(cdr ,ver*))

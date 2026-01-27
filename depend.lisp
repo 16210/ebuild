@@ -144,6 +144,8 @@
 
 (defmacro depspec*-usedep* (spec*)
   `(nth 5 ,spec*))
+(defmacro mk-depspec* (blockp operator qpkgname version* slotdep usedep*)
+  `(list ,blockp ,operator ,qpkgname ,version* ,slotdep ,usedep*))
 (defmacro mk-usedep* (reqlist blklist)
   `(cons ,reqlist ,blklist))
 (defmacro usedep*-reqlist (ud*)
@@ -162,3 +164,127 @@
   `(car ,sd))
 (defmacro slotdep-sub (sd)
   `(cdr ,sd))
+
+;; 插槽依赖匹配
+;; 参数：
+;;	slotdep		<插槽依赖>
+;;	regular-slot	待匹配的主插槽
+;;	sub-slot	待匹配的子插槽
+;; 返回值：
+;;	t		匹配
+;;	:rebd		需要重新构建(插槽变更)
+;;	:slot		插槽不匹配
+(defun slotdep-match (slotdep regular-slot sub-slot)
+  (dolist (iter (list (cons (slotdep-regular slotdep) regular-slot)
+		      (cons (slotdep-sub slotdep) sub-slot))
+		t)
+    (let ((d (car iter)) (s (cdr iter)))
+      (if d
+	(let ((l (length d)))
+	  (if (char= (char d (1- l)) #\=)
+	    (if (and (> l 1)
+		     (string/= s (subseq d 0 (1- l))))
+	      (return-from slotdep-match :rebd))
+	    (if (string/= s d)
+	      (return-from slotdep-match :slot))))))))
+
+(defmacro qpkgname-category (qpkgname)
+  `(car (string-split ,qpkgname #\/)))
+(defmacro qpkgname-pkgname (qpkgname)
+  `(cadr (string-split ,qpkgname #\/)))
+(defmacro qualified-pkgname (category name)
+  `(concatenate 'string ,category "/" ,name))
+
+;; 软件包依赖说明符匹配
+;; 参数：
+;;	depspec*	<软件包依赖说明符*>
+;;	category	待匹配软件包的类别
+;;	pkgname		待匹配软件包的非限定软件包名称
+;;	version		待匹配软件包的 <软件包版本>
+;;	regular-slot	待匹配软件包的主插槽，
+;;			:ignore 表示匹配时忽略插槽依赖
+;;	sub-slot	待匹配软件包的子插槽，
+;;			当 regular-slot 传入 :ignore 时忽略
+;;	use-list	待匹配软件包的启用应用标志列表，
+;;			当 iuse-effective 传入 :ignore 时忽略
+;;	iuse-effective	一个应用标志列表，
+;;			表示待匹配软件包的 IUSE_EFFECTIVE，
+;;			:ignore 表示匹配时忽略应用标志依赖
+;;	ignore-blockp	忽略阻塞符
+;; 返回值：
+;;	t		匹配
+;;	:qname		限定的软件包名称不匹配
+;;	:block		被阻塞
+;;	:ver<		版本低于要求
+;;	:ver>		版本高于要求
+;;	:rebd		需要重新构建(插槽变更)
+;;	:slot		插槽不匹配
+;;	:use+		必须启用的应用标志未启用
+;;			这种情况下会返回第二个值给出是哪个标志未启用
+;;	:use-		必须禁用的应用标志未禁用
+;;			这种情况下会返回第二个值给出是哪个标志未禁用
+;;	:not-effective	应用标志依赖不在 IUSE_EFFECTIVE 中
+;;			这种情况下会返回第二个值给出是哪个应用标志
+(defun depend*-match (depspec* category pkgname version regular-slot sub-slot use-list iuse-effective &optional (ignore-blockp nil))
+  (labels ((depend*-match-ignore-block ()
+				       ;; 匹配限定的软件包名称
+				       (unless (string= (qualified-pkgname category pkgname)
+							(depspec-qpkgname depspec*))
+					 (return-from depend*-match-ignore-block :qname))
+				       ;; 匹配版本和操作符
+				       (let ((op (depspec-operator depspec*))
+					     (ver* (depspec-version* depspec*)))
+					 (if op
+					   (let ((vercmp (version-compare version
+									  (version*-version ver*)
+									  (eql op '~)
+									  (version*-cmpcount ver*))))
+					     (if (< vercmp 0)
+					       (if (and (not (eql op '<))
+							(not (eql op '<=)))
+						 (return-from depend*-match-ignore-block :ver<))
+					       (if (> vercmp 0)
+						 (if (and (not (eql op '>))
+							  (not (eql op '>=)))
+						   (return-from depend*-match-ignore-block :ver>))
+						 (if (eql op '<)
+						   (return-from depend*-match-ignore-block :ver>)
+						   (if (eql op '>)
+						     (return-from depend*-match-ignore-block :ver<))))))))
+				       ;; 匹配插槽依赖
+				       (unless (eql regular-slot :ignore)
+					 (let ((slotmatch (slotdep-match (depspec-slotdep depspec*)
+									 regular-slot
+									 sub-slot)))
+					   (if (not (eql slotmatch t))
+					     (return-from depend*-match-ignore-block slotmatch))))
+				       ;; 匹配应用标志依赖
+				       (unless (eql iuse-effective :ignore)
+					 (dolist (ud+ (usedep*-reqlist (depspec*-usedep* depspec*)))
+					   (let ((f (usedepelt*-flag ud+)) (d (usedepelt*-defval ud+)))
+					     (if (member f iuse-effective :test #'string=)
+					       (unless (member f use-list :test #'string=)
+						 (return-from depend*-match-ignore-block (values :use+ f)))
+					       (if d
+						 (if (eql d :-)
+						   (return-from depend*-match-ignore-block (values :use+ f)))
+						 (return-from depend*-match (values :not-effective f))))))
+					 (dolist (ud- (usedep*-blklist (depspec*-usedep* depspec*)))
+					   (let ((f (usedepelt*-flag ud-)) (d (usedepelt*-defval ud-)))
+					     (if (member f iuse-effective :test #'string=)
+					       (if (member f use-list :test #'string=)
+						 (return-from depend*-match-ignore-block (values :use- f)))
+					       (if d
+						 (if (eql d :+)
+						   (return-from depend*-match-ignore-block (values :use- f)))
+						 (return-from depend*-match (values :not-effective f)))))))
+				       t))
+    (multiple-value-bind (a b) (depend*-match-ignore-block)
+      (if (or ignore-blockp
+	      (not (depspec-blockp depspec*)))
+	(if b
+	  (values a b)
+	  a)
+	(if (eql a t)
+	  :block
+	  t)))))
