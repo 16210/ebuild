@@ -288,3 +288,105 @@
 	(if (eql a t)
 	  :block
 	  t)))))
+
+;; <应用标志依赖> 转 <应用标志依赖*>
+;; 参数：
+;;	ud			<应用标志依赖>
+;;	use-list		启用的应用标志列表
+;;	iuse-effective		一个应用标志列表，
+;;				表示软件包的 IUSE_EFFECTIVE
+;; 返回值：
+;;	转换成功返回一个 <应用标志依赖*>，
+;;	<应用标志依赖> 中有某项不合法返回 :error，
+;;	“=”或“?”前的应用标志不在 IUSE_EFFECTIVE 中返回 :not-effective
+(defun usedep->usedep* (ud use-list iuse-effective)
+  (let ((ud* (mk-usedep* nil nil)) len flag defval usedepelt* prefx sufx)
+    (labels (;; 解析 <应用标志依赖> 中某项的标志名称与默认值
+	     ;; 参数：
+	     ;;		dstr	<应用标志依赖> 中的某项
+	     ;;		start	标志名称首字符索引
+	     ;;		end	默认值右圆括号的索引+1；
+	     ;;			如果 dstr 中没有默认值则是
+	     ;;			标志名称最后一个字符的索引+1
+	     ;; 如果成功解析就将标志名称和默认值
+	     ;;  分别赋值给 flag 和 defval，随后根据这两个值
+	     ;;  创建 <应用标志依赖项*> 赋值给 usedepelt* 并将它返回
+	     ;; 如果标志名称或默认值不合法
+	     ;;  则从 usedep->usedep* 函数返回 :error
+	     (parse-flag-defval (dstr start end)
+				(let ((flag-defval (subseq dstr start end)))
+				  (when (zerop (length flag-defval))
+				    (return-from usedep->usedep* :error))
+				  (setf flag-defval (string-split flag-defval #\())
+				  (when (or (> (length flag-defval) 2)
+					    (not (use-flag-name-p (car flag-defval) t)))
+				    (return-from usedep->usedep* :error))
+				  (setf flag (car flag-defval))
+				  ;; 处理默认值
+				  (if (cdr flag-defval)
+				    (cond
+				      ((string= (cadr flag-defval) "+)")
+				       (setf defval :+))
+				      ((string= (cadr flag-defval) "-)")
+				       (setf defval :-))
+				      (t (return-from usedep->usedep* :error)))
+				    (setf defval nil))
+				  ;; 创建 <应用标志依赖项*>
+				  (setf usedepelt* (mk-usedepelt* flag defval)))))
+
+      (dolist (dstr ud ud*)
+	(when (zerop (setf len (length dstr)))
+	  (return-from usedep->usedep* :error))
+	(setf prefx (char dstr 0))
+	(when (and (char/= prefx #\-)
+		   (char/= prefx #\!))
+	  (setf prefx nil))
+	(setf sufx (char dstr (1- len)))
+	(when (and (char/= sufx #\=)
+		   (char/= sufx #\?))
+	  (setf sufx nil))
+	(when (or (and (null sufx) (eql prefx #\!))
+		  (and sufx (eql prefx #\-)))
+	  (return-from usedep->usedep* :error))
+	(parse-flag-defval dstr (if prefx 1 0) (if sufx (1- len) len))
+	(if sufx
+	  (let ((enable (find flag use-list :test #'string=)))
+	    (cond
+	      ((not (find flag iuse-effective :test #'string=))
+	       (return-from usedep->usedep* :not-effective))
+	      ((char= sufx #\=)
+	       (if (xor prefx enable)
+		 (setf (usedep*-reqlist ud*) (nconc (usedep*-reqlist ud*) (list usedepelt*)))
+		 (setf (usedep*-blklist ud*) (nconc (usedep*-blklist ud*) (list usedepelt*)))))
+	      ((and (null prefx) enable)
+	       (setf (usedep*-reqlist ud*) (nconc (usedep*-reqlist ud*) (list usedepelt*))))
+	      ((and prefx (null enable))
+	       (setf (usedep*-blklist ud*) (nconc (usedep*-blklist ud*) (list usedepelt*))))))
+	  (if prefx
+	    (setf (usedep*-blklist ud*) (nconc (usedep*-blklist ud*) (list usedepelt*)))
+	    (setf (usedep*-reqlist ud*) (nconc (usedep*-reqlist ud*) (list usedepelt*)))))))))
+
+;; 解析 <软件包依赖说明符*>
+;; 参数：
+;;	dep			软件包依赖说明符字符串
+;;	use-list		启用的应用标志列表
+;;	iuse-effective		一个应用标志列表，
+;;				表示软件包的 IUSE_EFFECTIVE
+;;	=->nil?			是否将插槽依赖中的“=”处理成 nil
+;; 返回值：
+;;	解析成功返回一个 <软件包依赖说明符*>，
+;;	dep 不合法或 <应用标志依赖*> 解析失败返回 nil
+(defun parse-depspec* (dep use-list iuse-effective =->nil?)
+  (let ((pds (parse-depspec dep)))
+    (when pds
+      (when =->nil?
+	(when (equal (slotdep-sub (depspec-slotdep pds)) "=")
+	  (setf (slotdep-sub (depspec-slotdep pds)) nil)
+	  (when (equal (slotdep-regular (depspec-slotdep pds)) "=")
+	    (setf (slotdep-regular (depspec-slotdep pds)) nil))))
+      (if (symbolp (setf (depspec-usedep pds)
+			 (usedep->usedep* (depspec-usedep pds)
+					  use-list
+					  iuse-effective)))
+	nil
+	pds))))
