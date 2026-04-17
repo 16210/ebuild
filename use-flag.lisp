@@ -117,7 +117,6 @@
 				       sp (if sp (1+ sp) 0)
 				       tail-spec (make-spec t (subseq spec-str sp (1+ ep)))))
 			       (nconc (parse-spectext (subseq spec-str 0 sp)) (list tail-spec))))))
-
     (let ((spec-list (parse-spectext spec-string)))
       ;; 处理 "->"
       (when src-uri-p

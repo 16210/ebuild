@@ -333,7 +333,6 @@
 				    (setf defval nil))
 				  ;; 创建 <应用标志依赖项*>
 				  (setf usedepelt* (mk-usedepelt* flag defval)))))
-
       (dolist (dstr ud ud*)
 	(when (zerop (setf len (length dstr)))
 	  (return-from usedep->usedep* :error))
