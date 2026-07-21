@@ -96,16 +96,19 @@
 ;;			正常得到返回值而不实际更新各个 <匹配情况>
 ;; 返回值：
 ;;	1. <广义路径列表>：
-;;	   如果 dsnode* 是原子说明符且匹配，等于 (nil)；
-;;	   如果 dsnode* 是非原子说明符且有原子说明符匹配，
+;;	   如果 dsnode* 是原子节点且匹配，等于 (nil)；
+;;	   如果 dsnode* 是非原子节点且有原子说明符匹配，
 ;;	   <广义路径列表> 是一个 <路径列表>；
 ;;	   如果不匹配则等于 nil
 ;;	2. <满足变更>：
 ;;	   如果 dsnode* 的 <匹配情况> 由不满足变为满足，等于 :+；
 ;;	   如果 dsnode* 的 <匹配情况> 由满足变为不满足，等于 :-；
 ;;	   如果 dsnode* 的 <匹配情况> 满足与否不变则等于 nil
+;; 说明：
+;;	对于原子节点，如果 <匹配情况> 中已经存在 pkgrec 的 <软件包版本>
+;;	则不会重复添加，且返回的 <广义路径列表> 等同于不匹配
 (defun add-match-version (dsnode* pkgrec &optional (update? t))
-  (let ((dntype (depnode*-type dsnode*)) satchg)
+  (let ((dntype (depnode*-type dsnode*)) path-list satchg)
     (if (eql dntype t)
       (when (eql (depend*-match (depnode*-content dsnode*)
 				(pkgrec-category pkgrec)
@@ -117,17 +120,20 @@
 				(pkgrec-iuse_effective pkgrec)
 				t)
 		 t)
-	(unless (depnode*-match dsnode*)
+	(setf path-list (list nil))
+	(if (depnode*-match dsnode*)
+	  (if (member (pkgrec-version pkgrec)
+		      (depnode*-match dsnode*)
+		      :test #'equal)
+	    (setf path-list nil))
 	  (if (depspec-blockp (depnode*-content dsnode*))
 	    (setf satchg :-)
 	    (setf satchg :+)))
-	(when update?
+	(when (and update? path-list)
 	  (setf (depnode*-match dsnode*)
 		(nconc (depnode*-match dsnode*)
-		       (list (pkgrec-version pkgrec)))))
-	(values (list nil) satchg))
-      (let (path-list
-	    (oldmatch (depnode*-match dsnode*))
+		       (list (pkgrec-version pkgrec))))))
+      (let ((oldmatch (depnode*-match dsnode*))
 	    (newmatch (eql dntype :all)))
 	(dotimes (idx (length (depnode*-content dsnode*)))
 	  (let ((sub-dsnode* (nth idx (depnode*-content dsnode*))))
@@ -150,8 +156,8 @@
 	(unless (eql oldmatch newmatch)
 	  (if newmatch
 	    (setf satchg :+)
-	    (setf satchg :-)))
-	(values path-list satchg)))))
+	    (setf satchg :-)))))
+    (values path-list satchg)))
 
 ;; 移除匹配版本
 ;   从原子依赖说明符节点的 <匹配情况> 中删除一个 <软件包版本>，
@@ -346,6 +352,7 @@
 ;   根据软件包记录表填写给定软件包记录的
 ;   一个 <依赖说明符节点*> 树中各个节点的 <匹配情况>，
 ;   同时更新对应软件包记录的反向匹配
+;   如果指定的 <依赖说明符节点*> 是 nil 则无操作
 ;; 参数：
 ;;	pkgrlst		<软件包记录> 表
 ;;	pkg-record	<软件包记录>
@@ -353,18 +360,19 @@
 ;; 返回值：
 ;;	[未定义] 目前的实现为 nil
 (defun establish-match (pkgrlst pkg-record class-idx)
-  (dolist (pkgrec-iter (mapcan #'(lambda (rec)
-				   (if (eql (pkgrec-status rec) :installed)
-				     (list rec)))
-			       pkgrlst))
-    (let ((path-list (add-match-version (pkgrec-depnode* pkg-record class-idx) pkgrec-iter t)))
-      (when path-list
-	(setf (pkgrec-reverse pkgrec-iter class-idx)
-	      (nconc (pkgrec-reverse pkgrec-iter class-idx)
-		     (list (mk-revmatch (pkgrec-category pkg-record)
-					(pkgrec-pkgname pkg-record)
-					(pkgrec-version pkg-record)
-					path-list))))))))
+  (if (pkgrec-depnode* pkg-record class-idx)
+    (dolist (pkgrec-iter (mapcan #'(lambda (rec)
+				     (if (eql (pkgrec-status rec) :installed)
+				       (list rec)))
+				 pkgrlst))
+      (let ((path-list (add-match-version (pkgrec-depnode* pkg-record class-idx) pkgrec-iter t)))
+	(when path-list
+	  (setf (pkgrec-reverse pkgrec-iter class-idx)
+		(nconc (pkgrec-reverse pkgrec-iter class-idx)
+		       (list (mk-revmatch (pkgrec-category pkg-record)
+					  (pkgrec-pkgname pkg-record)
+					  (pkgrec-version pkg-record)
+					  path-list)))))))))
 
 ;; 计算依赖的目标列表
 ;; 参数：
@@ -421,6 +429,7 @@
 ;   在软件包记录表中能找到对应软件包记录的 <软件包版本>
 ;   并更新路径上节点的 <匹配情况>，
 ;   同时将被删除的 <软件包版本> 对应的 <反向匹配> 删除
+;   如果指定的 <依赖说明符节点*> 是 nil 则无操作
 ;; 参数：
 ;;	pkgrlst		<软件包记录> 表
 ;;	pkg-record	<软件包记录>
@@ -454,7 +463,8 @@
 					 (setf (pkgrec-reverse beiyilai-rec class-idx) (delete revmatch revmatch-list)))))))
 			       (dolist (n (depnode*-content dsnode))
 				 (bl-dsnode-tree n)))))
-      (bl-dsnode-tree depspec-root-node))))
+      (if depspec-root-node
+	(bl-dsnode-tree depspec-root-node)))))
 
 ;; 解除反向匹配关系
 ;   遍历给定软件包记录的一个 <反向匹配> 列表，从中删除
@@ -510,3 +520,109 @@
 (declaim (inline delete-pkg-record))
 (defun delete-pkg-record (pkgrlst pkg-record)
   (delete pkg-record pkgrlst))
+
+;; 插槽选择
+;   遍历强运行 <依赖说明符节点*> 树中所有
+;   主插槽依赖或子插槽依赖等于字符串"="的非阻塞原子节点，
+;   从 <匹配情况> 中选择一个 <软件包版本>
+;   将其对应软件包记录的插槽填到"="前边
+;   同时将未选择的 <软件包版本> 从 <匹配情况> 中删除
+;   并更新对应软件包记录的 <反向匹配> 列表
+;   版本选择策略暂定为选最高的
+;; 参数：
+;;	pkgrlst		<软件包记录> 表
+;;	pkg-record	<软件包记录>
+;; 返回值：
+;;	回滚函数
+(defun pick-slot (pkgrlst pkg-record)
+  (let ((category (pkgrec-category pkg-record))
+	(pkgname (pkgrec-pkgname pkg-record))
+	(version (pkgrec-version pkg-record))
+	(rollback-func #'identity))
+    (labels (;; 遍历 <依赖说明符节点*> 树
+	     ;; 参数：
+	     ;;		depspec-node*	<依赖说明符节点*>
+	     ;;		path		从根节点到此节点的 <路径>
+	     ;; 返回值：
+	     ;;		nil
+	     (bl-dsnode-tree (depspec-node* path)
+			     (if (eql (depnode*-type depspec-node*) t)
+			       ;; 原子节点
+			       (let* ((pds (depnode*-content depspec-node*))
+				      (dep-qpkgname (depspec-qpkgname pds))
+				      (dep-category (qpkgname-category dep-qpkgname))
+				      (dep-pkgname (qpkgname-pkgname dep-qpkgname))
+				      (slotdep (depspec-slotdep pds))
+				      (regular-slot (slotdep-regular slotdep))
+				      (sub-slot (slotdep-sub slotdep)))
+				 (if (and (equal sub-slot "=")
+					  (not (depspec-blockp pds))
+					  (depnode*-match depspec-node*))
+				   (let* ((mplist (mapcar #'(lambda (ver)
+							      (find-if #'(lambda (rec)
+									   (and (string= (pkgrec-category rec) dep-category)
+										(string= (pkgrec-pkgname rec) dep-pkgname)
+										(equal (pkgrec-version rec) ver)))
+								       pkgrlst))
+							  (depnode*-match depspec-node*)))
+					  (slist (sort mplist #'(lambda (ver-a ver-b)
+								  (> (version-compare ver-a ver-b nil)
+								     0))
+						       :key #'(lambda (rec) (pkgrec-version rec))))
+					  (hvpkg (car slist))
+					  (hvpkg-regular-slot (slotpair-regular (pkgrec-slotpair hvpkg)))
+					  (hvpkg-sub-slot (slotpair-sub (pkgrec-slotpair hvpkg))))
+				     ;; 修改 <插槽依赖>
+				     (setf (slotdep-sub slotdep) (concatenate 'string hvpkg-sub-slot "="))
+				     (let ((f rollback-func) (x slotdep))
+				       (setf rollback-func (lambda (rlst) (setf (slotdep-sub x) "=") (funcall f rlst))))
+				     (when (string= regular-slot "=")
+				       (setf (slotdep-regular slotdep) (concatenate 'string hvpkg-regular-slot "="))
+				       (let ((f rollback-func) (x slotdep))
+					 (setf rollback-func (lambda (rlst) (setf (slotdep-regular x) "=") (funcall f rlst)))))
+				     ;; 删除未选择的 <软件包版本>
+				     (let ((f rollback-func)
+					   (x0 depspec-node*)
+					   (x1 (depnode*-match depspec-node*)))
+				       (setf (depnode*-match depspec-node*) (list (pkgrec-version hvpkg)))
+				       (setf rollback-func (lambda (rlst) (setf (depnode*-match x0) x1) (funcall f rlst))))
+				     ;; 更新 <反向匹配>
+				     (dolist (lvpkg (cdr slist))
+				       (let ((revmatch (find-if #'(lambda (rev)
+								    (and (string= (revmatch-category rev) category)
+									 (string= (revmatch-pkgname rev) pkgname)
+									 (equal (revmatch-version rev) version)))
+								(pkgrec-reverse-rdep lvpkg))))
+					 ;; 更新 <路径列表>
+					 (setf (revmatch-pathlist revmatch)
+					       (delete path (revmatch-pathlist revmatch) :test #'equal))
+					 (let ((f rollback-func)
+					       (x0 revmatch)
+					       (x1 path))
+					   (setf rollback-func (lambda (rlst)
+								 (setf (revmatch-pathlist x0)
+								       (cons x1 (revmatch-pathlist x0)))
+								 (funcall f rlst))))
+					 ;; 若更新后 <路径列表> 为空则删除 <反向匹配>
+					 (unless (revmatch-pathlist revmatch)
+					   (setf (pkgrec-reverse-rdep lvpkg) (delete revmatch (pkgrec-reverse-rdep lvpkg)))
+					   (let ((f rollback-func)
+						 (x0 lvpkg)
+						 (x1 revmatch))
+					     (setf rollback-func (lambda (rlst)
+								   (setf (pkgrec-reverse-rdep x0)
+									 (cons x1 (pkgrec-reverse-rdep x0)))
+								   (funcall f rlst))))))))))
+			       ;; 非原子节点
+			       (do ((sub-node-list (depnode*-content depspec-node*) (cdr sub-node-list))
+				    (i 0 (1+ i)))
+				 ((null sub-node-list))
+				 (bl-dsnode-tree (car sub-node-list) (append path (list i)))))))
+      (if (pkgrec-depnode*-rdep pkg-record)
+	(bl-dsnode-tree (pkgrec-depnode*-rdep pkg-record) nil))
+      rollback-func)))
+
+;; 判断一个软件包记录是否在给定的软件包记录表里
+(declaim (inline pkgrec-existp))
+(defun pkgrec-existp (pkg-record pkgrlst)
+  (member pkg-record pkgrlst))

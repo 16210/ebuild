@@ -1,0 +1,8 @@
+(defmacro mk-errnode (level errinfo sublvldesc)
+  `(list ,level ,errinfo ,sublvldesc))
+(defmacro errnode-level (errnode)
+  `(car ,errnode))
+(defmacro errnode-errinfo (errnode)
+  `(cadr ,errnode))
+(defmacro errnode-sublvldesc (errnode)
+  `(caddr ,errnode))
